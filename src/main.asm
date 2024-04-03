@@ -1,3 +1,6 @@
+; Alexandre Auclair (deom) 2023
+; blockade
+
 .INCLUDE "header.asm"
 
 .SEGMENT "ZEROPAGE"
