@@ -51,6 +51,9 @@ seed:         .res 1
 rN:           .res 1
 rng1:         .res 1
 rng2:         .res 1
+jointBlockSpriteP1 : .res 1
+jointBlockSpriteP2 : .res 1
+loadingPlayer : .res 1
 
 .SEGMENT "STARTUP"
 
@@ -84,8 +87,27 @@ RESET:
 
   LDA #$80
   STA timerDemo
-forever:
-  JMP forever
+
+
+mainLoop:
+
+GameEngine:  
+  LDA gamestate
+  CMP #STATEDEMO
+  BNE @notDemo
+  JMP EngineDemo      ;;game is displaying demo
+  @notDemo:
+  CMP #STATEGAMEOVER
+  BNE @notGameOver
+  JMP EngineGameOver  ;;game is displaying ending screen
+  @notGameOver:
+  CMP #STATEPLAYING
+  BNE @notPlaying
+  JMP EnginePlaying   ;;game is playing
+  @notPlaying:
+GameEngineDone:  
+
+  JMP mainLoop
 
 NMI:
   PHA
@@ -109,29 +131,20 @@ NMI:
   LDA #%00011110
   STA PPU_MASK
 
-  LDA #$00          ; no scroll
-  STA PPU_SCROLL
-  STA PPU_SCROLL
+
 
   JSR ReadControllers
 
-
-GameEngine:  
-  LDA gamestate
-  CMP #STATEDEMO
-  BEQ EngineDemo      ;;game is displaying demo
-    
-  LDA gamestate
-  CMP #STATEGAMEOVER
-  BEQ EngineGameOver  ;;game is displaying ending screen
-  
-  LDA gamestate
-  CMP #STATEPLAYING
-  BEQ EnginePlaying   ;;game is playing
-
-GameEngineDone:  
+  LDA loadingPlayer
+  BEQ @notLoading
+  JSR LoadPlayer
+  DEC loadingPlayer
+  @notLoading:
   LDA #$00
   STA IsUpdating
+  LDA #$00          ; no scroll
+  STA PPU_SCROLL
+  STA PPU_SCROLL
 
 finNMI:
   PLA
@@ -168,6 +181,7 @@ EngineDemo:
   JMP GameEngineDone
 
 EngineGameOver:
+  JSR VBlankWait
   JSR LoadPlayer
   STA direction
   LDX #$01
@@ -180,9 +194,6 @@ EngineGameOver:
   JMP @checkButton
   @scoredisplay:
   JSR LoadScore
-  LDA #$00
-  STA PPU_ADDRESS
-  STA PPU_ADDRESS
   @checkButton:
   LDA buttons
   CMP #$10
@@ -209,6 +220,7 @@ EngineGameOver:
   JMP GameEngineDone
 
 EnginePlaying:
+  JSR VBlankWait
   LDA playingstate
   CMP #$00
   BEQ beginmatch
@@ -236,9 +248,13 @@ playingLoop:
     JSR movingPlayers
     LDX #$01
     JSR changeDirection
+    JSR calculateJoint
     LDA counter
     BNE @endLoop
-    JSR LoadPlayer
+    INC loadingPlayer
+    @waitNMI:
+    LDA loadingPlayer
+    BNE @waitNMI
   @endLoop:
     LDX #$01
     LDA direction
@@ -457,6 +473,74 @@ LoadGameOverCard:
     RTS
 ;----------------------------------------------------------------------------------------------------------------------------------------------------
 ;----------------------------------------------------------------------------------------------------------------------------------------------------
+; void calculateJoint()
+;
+;----------------------------------------------------------------------------------------------------------------------------------------------------
+calculateJoint:
+  LDX #$01 
+  @loop:
+  LDA counter
+  BNE @standardBlock
+  LDA oldDirection,X
+  SEC 
+  SBC direction,X
+  CMP #$F9
+  BEQ @rightToUp
+  CMP #$FA
+  BEQ @leftToUp
+  CMP #$FD
+  BEQ @rightToDown
+  CMP #$FE
+  BEQ @leftToDown
+  CMP #$07
+  BEQ @upToRight
+  CMP #$03
+  BEQ @downToRight
+  CMP #$06
+  BEQ @upToLeft
+  CMP #$02
+  BEQ @downToLeft
+  JMP @standardBlock
+  @rightToDown:
+  @upToLeft:
+  LDA #$FA 
+  STA jointBlockSpriteP1,X
+  JMP @newdir
+  @leftToDown:
+  @upToRight:
+  LDA #$FB
+  STA jointBlockSpriteP1,X
+  JMP @newdir
+  @downToRight:
+  @leftToUp:
+  LDA #$FC
+  STA jointBlockSpriteP1,X
+  JMP @newdir
+  @downToLeft:
+  @rightToUp:
+  LDA #$FD
+  STA jointBlockSpriteP1,X
+  @newdir:
+  LDA direction,X
+  STA oldDirection,X
+  JMP @end
+  @standardBlock:
+  LDA direction,X
+  CMP #$08
+  BEQ @vertblock
+  CMP #$04
+  BEQ @vertblock
+  LDA #$FF
+  STA jointBlockSpriteP1,X
+  JMP @end
+  @vertblock:
+  LDA #$FE
+  STA jointBlockSpriteP1,X
+  @end:
+  DEX
+  BEQ @loop
+  RTS
+;----------------------------------------------------------------------------------------------------------------------------------------------------
 ;void LoadPlayer()
 ;print the player into the background | check for collision on the bg layer
 ;----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -489,62 +573,7 @@ LoadPlayer:
   INX 
   LDA oldposbg1,X
   STA PPU_ADDRESS
-  LDA counter
-  BNE @standardBlock
-  LDA oldDirection
-  SEC 
-  SBC direction
-  CMP #$F9
-  BEQ @rightToUp
-  CMP #$FA
-  BEQ @leftToUp
-  CMP #$FD
-  BEQ @rightToDown
-  CMP #$FE
-  BEQ @leftToDown
-  CMP #$07
-  BEQ @upToRight
-  CMP #$03
-  BEQ @downToRight
-  CMP #$06
-  BEQ @upToLeft
-  CMP #$02
-  BEQ @downToLeft
-  JMP @standardBlock
-  @rightToDown:
-  @upToLeft:
-  LDA #$FA 
-  STA PPU_DATA
-  JMP @newdir
-  @leftToDown:
-  @upToRight:
-  LDA #$FB
-  STA PPU_DATA
-  JMP @newdir
-  @downToRight:
-  @leftToUp:
-  LDA #$FC
-  STA PPU_DATA
-  JMP @newdir
-  @downToLeft:
-  @rightToUp:
-  LDA #$FD
-  STA PPU_DATA
-  @newdir:
-  LDA direction
-  STA oldDirection
-  JMP @head
-  @standardBlock:
-  LDA direction
-  CMP #$08
-  BEQ @vertblock
-  CMP #$04
-  BEQ @vertblock
-  LDA #$FF
-  STA PPU_DATA
-  JMP @head
-  @vertblock:
-  LDA #$FE
+  LDA jointBlockSpriteP1
   STA PPU_DATA
 
   @head:
@@ -615,63 +644,9 @@ LoadPlayer:
   INX 
   LDA oldposbg2,X
   STA PPU_ADDRESS
-  LDA counter
-  BNE @standardBlock
-  LDA oldDirection,X
-  SEC 
-  SBC direction,X
-  CMP #$F9
-  BEQ @rightToUp
-  CMP #$FA
-  BEQ @leftToUp
-  CMP #$FD
-  BEQ @rightToDown
-  CMP #$FE
-  BEQ @leftToDown
-  CMP #$07
-  BEQ @upToRight
-  CMP #$03
-  BEQ @downToRight
-  CMP #$06
-  BEQ @upToLeft
-  CMP #$02
-  BEQ @downToLeft
-  JMP @standardBlock
-  @rightToDown:
-  @upToLeft:
-  LDA #$FA 
+  LDA jointBlockSpriteP2
   STA PPU_DATA
-  JMP @newdir
-  @leftToDown:
-  @upToRight:
-  LDA #$FB
-  STA PPU_DATA
-  JMP @newdir
-  @downToRight:
-  @leftToUp:
-  LDA #$FC
-  STA PPU_DATA
-  JMP @newdir
-  @downToLeft:
-  @rightToUp:
-  LDA #$FD
-  STA PPU_DATA
-  @newdir:
-  LDA direction,X
-  STA oldDirection,X
-  JMP @head
-  @standardBlock:
-  LDA direction,X
-  CMP #$08
-  BEQ @vertblock
-  CMP #$04
-  BEQ @vertblock
-  LDA #$FF
-  STA PPU_DATA
-  JMP @head
-  @vertblock:
-  LDA #$FE
-  STA PPU_DATA
+  
 
   @head:
   LDX #$00
@@ -719,14 +694,16 @@ LoadPlayer:
   STA PPU_DATA
   
   @end:
-  LDA #%10010000
-  STA PPU_CTRL
-  LDA #%00011110
-  STA PPU_MASK
   LDA PPU_STATUS
   LDA #$00
   STA PPU_ADDRESS
   STA PPU_ADDRESS
+  STA PPU_SCROLL
+  STA PPU_SCROLL
+  LDA #%10010000
+  STA PPU_CTRL
+  LDA #%00011110
+  STA PPU_MASK
   RTS
 ;----------------------------------------------------------------------------------------------------------------------------------------------------
 ;----------------------------------------------------------------------------------------------------------------------------------------------------
